@@ -11,4 +11,5 @@ dependencies = [
     "langsmith>=0.8.5",
     "mcp>=1.27.1",
     "openai-agents>=0.17.3",
+    "streamlit>=1.57.0",
 ]

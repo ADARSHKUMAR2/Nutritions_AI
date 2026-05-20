@@ -4,7 +4,8 @@ from mcp_config import get_exa_search_mcp
 from guardrails import food_topic_guardrail
 from config import get_github_model
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional
+from slides_tool import generate_breakfast_deck
 
 class CalorieData(BaseModel):
     food_item: str = Field(description="The name of the breakfast option (e.g., 'Greek Yogurt Parfait')")
@@ -13,6 +14,7 @@ class CalorieData(BaseModel):
 class AdvisorResponse(BaseModel):
     text_response: str = Field(description="Your detailed breakfast plan and explanation in markdown format.")
     chart_data: List[CalorieData] = Field(description="A list of each food item and its corresponding total calorie value.")
+    slides_url: Optional[str] = Field(default=None, description="The URL to the generated Google Slides presentation. Extract this from the slides tool output.")
 
 def build_agents():
     """Assembles and returns all configured agents as a dictionary."""
@@ -90,14 +92,23 @@ def build_agents():
         name="breakfast_advisor_guarded_agent",
         instructions="""
         * You are a breakfast advisor. Come up with meal plans based on user preferences.
-        * WORKFLOW:
-          1. Call the 'breakfast_planner' tool to generate options.
-          2. Call the 'calorie_calculator' tool to compute calories for the ingredients.
-          3. CRITICAL: Once you have options and calories, immediately execute the 'transfer_to_breakfast_price_checker_agent' tool.
-        * Do not try to generate final pricing yourself; you MUST use the transfer tool.
-        * CRITICAL TOOL LIMITATION: You must BATCH your requests. Do NOT call the calorie or price tools multiple times. Pass ALL the meals and ingredients into the tools in a SINGLE combined text string.
+        
+        * STRICT MANDATORY WORKFLOW - You MUST execute these tools in order:
+          1. Use the 'breakfast_planner' tool.
+          2. Use the 'calorie_calculator' tool to get the real calories.
+          3. Use the 'price_checker' tool to get the real prices.
+          4. Use the 'generate_breakfast_deck' tool. Pass a title, summary, and a stringified JSON of the chart data.
+          5. ONLY AFTER the slides tool returns a success message with the URL, format your final AdvisorResponse.
+          
+        * CRITICAL GUARDRAIL: You are STRICTLY FORBIDDEN from generating the final response until you have actually called the 'generate_breakfast_deck' tool. Do NOT hallucinate, guess, or use placeholder URLs. Wait for the tool to give you the real link!
+        * BATCH your requests for the calorie and price tools to save time.
         """,
-        tools=[breakfast_planner_tool, calorie_calculator_tool, price_checker_tool],
+        tools=[
+            breakfast_planner_tool, 
+            calorie_calculator_tool,
+            price_checker_tool,
+            generate_breakfast_deck
+            ],
         # handoff_description="Create a concise breakfast recommendation based on the user's preferences. Use Markdown format.",
         # handoffs=[breakfast_price_checker_agent],
         input_guardrails=[food_topic_guardrail],
