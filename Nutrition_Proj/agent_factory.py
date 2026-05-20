@@ -3,6 +3,16 @@ from db import calorie_lookup_tool, safe_exa_search
 from mcp_config import get_exa_search_mcp
 from guardrails import food_topic_guardrail
 from config import get_github_model
+from pydantic import BaseModel, Field
+from typing import List
+
+class CalorieData(BaseModel):
+    food_item: str = Field(description="The name of the breakfast option (e.g., 'Greek Yogurt Parfait')")
+    calories: int = Field(description="The total calculated calorie content as an integer (e.g., 340)")
+
+class AdvisorResponse(BaseModel):
+    text_response: str = Field(description="Your detailed breakfast plan and explanation in markdown format.")
+    chart_data: List[CalorieData] = Field(description="A list of each food item and its corresponding total calorie value.")
 
 def build_agents():
     """Assembles and returns all configured agents as a dictionary."""
@@ -37,9 +47,10 @@ def build_agents():
         3. Limit your search to a maximum of 1 or 2 results.
         * Don't use the calorie_lookup_tool more than 10 times.
         * CRITICAL: When using Exa Search, ALWAYS limit your search to a maximum of 2 results and request short summaries to save tokens. Do not fetch full web pages.
+        * IMPORTANT: The search tool ONLY accepts a single search string. Do not pass any extra parameters.
         """,
         tools=[calorie_lookup_tool], 
-        mcp_servers=[exa_search_mcp],
+        # mcp_servers=[exa_search_mcp],
         input_guardrails=[food_topic_guardrail],
         model=llm_model,
     )
@@ -59,43 +70,43 @@ def build_agents():
     breakfast_price_checker_agent = Agent(
         name="breakfast_price_checker_agent",
         instructions="""
-        * You are a helpful assistant that takes multiple breakfast items (with ingredients and calories) and checks for the price of the ingredients.
-        * Use the exa search to get an approximate price for the ingredients.
-        * EXA SEARCH RULES (CRITICAL):
-          1. Limit your search to 1 result per ingredient.
-          2. NEVER fetch the full text or raw HTML of a webpage. 
-          3. Extract ONLY the price and discard the rest of the text.
-        * In your final output provide the meal name, ingredients with calories, and price for each meal.
-        * Use markdown and be as concise as possible.
+        * You check prices for breakfast ingredients using the safe_exa_search tool.
+        * IMPORTANT: The search tool ONLY accepts a single search string (the 'query'). Do not pass any other parameters.
+        * Pass a simple, direct query like: "average price of a dozen eggs 2024"
+        * Output the final meal name, ingredients, calories, and price in Markdown.
         """,
         # mcp_servers=[exa_search_mcp],
         tools=[safe_exa_search],
         model=llm_model,
     )
 
+    price_checker_tool = breakfast_price_checker_agent.as_tool(
+        tool_name="price_checker",
+        tool_description="Use this tool to find the real-world prices of the ingredients."
+    )
+
     # 4. Main Breakfast Advisor (The Orchestrator)
     breakfast_advisor_guarded = Agent(
         name="breakfast_advisor_guarded_agent",
         instructions="""
-        * You are a breakfast advisor. You come up with meal plans for the user based on their preferences.
-        * You also calculate the calories for the meal and its ingredients.
-        * Based on the breakfast meals and the calories that you get from upstream agents,
-        * Create a meal plan for the user. For each meal, give a name, the ingredients, and the calories
-        * You only answer questions about food.
-        Follow this workflow carefully:
-        1) Use the breakfast_planner_tool to plan a a number of healthy breakfast options.
-        2) Use the calorie_calculator_tool to calculate the calories for the meal and its ingredients.
-        3) Always handoff the breakfast meals and the calories to the Use the Breakfast Price Checker Assistant to add the prices in the last step.
+        * You are a breakfast advisor. Come up with meal plans based on user preferences.
+        * WORKFLOW:
+          1. Call the 'breakfast_planner' tool to generate options.
+          2. Call the 'calorie_calculator' tool to compute calories for the ingredients.
+          3. CRITICAL: Once you have options and calories, immediately execute the 'transfer_to_breakfast_price_checker_agent' tool.
+        * Do not try to generate final pricing yourself; you MUST use the transfer tool.
+        * CRITICAL TOOL LIMITATION: You must BATCH your requests. Do NOT call the calorie or price tools multiple times. Pass ALL the meals and ingredients into the tools in a SINGLE combined text string.
         """,
-        tools=[breakfast_planner_tool, calorie_calculator_tool],
-        handoff_description="Create a concise breakfast recommendation based on the user's preferences. Use Markdown format.",
-        handoffs=[breakfast_price_checker_agent],
+        tools=[breakfast_planner_tool, calorie_calculator_tool, price_checker_tool],
+        # handoff_description="Create a concise breakfast recommendation based on the user's preferences. Use Markdown format.",
+        # handoffs=[breakfast_price_checker_agent],
         input_guardrails=[food_topic_guardrail],
         model=llm_model,
+        output_type=AdvisorResponse
     )
 
     return {
         "nutrition_agent": calorie_agent_with_search_guarded,
         "breakfast_advisor": breakfast_advisor_guarded,
-        "mcp_server": exa_search_mcp
+        # "mcp_server": exa_search_mcp
     }

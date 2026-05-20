@@ -1,10 +1,12 @@
+import os
 from dotenv import load_dotenv
-load_dotenv()
-
+load_dotenv(override=True)
 import asyncio
 from agents import Runner
 from agent_factory import build_agents
+from langsmith import traceable
 
+@traceable(run_type="tool", name="Breakfast Advisor Run")
 async def main():
     print("Initializing agents...")
     agents = build_agents()

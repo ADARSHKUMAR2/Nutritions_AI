@@ -3,6 +3,7 @@ from pathlib import Path
 import chromadb
 from agents import function_tool
 from exa_py import Exa
+from langsmith import traceable
 
 def get_nutrition_db():
     """Initializes and returns the ChromaDB collection."""
